@@ -78,6 +78,8 @@ def main():
         c.convert_to_conll2003(args.input, args.output, is_dir=not args.heartex_format)
     elif args.format == Format.COCO:
         c.convert_to_coco(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format)
+    elif args.format == Format.SLY:
+        c.convert_to_sly(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format)
     elif args.format == Format.VOC:
         c.convert_to_voc(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format)
 

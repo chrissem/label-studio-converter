@@ -42,6 +42,7 @@ class Format(Enum):
     BRUSH_TO_PNG = 9
     ASR_MANIFEST = 10
     YOLO = 11
+    SLY = 12
 
     def __str__(self):
         return self.name
@@ -125,6 +126,12 @@ class Converter(object):
                            'format expected by NVIDIA NeMo models.',
             'link': 'https://labelstud.io/guide/export.html#ASR-MANIFEST',
             'tags': ['speech recognition']
+        },
+        Format.SLY: {
+            'title': 'SLY',
+            'description': 'Supervisely format for import.',
+            'link': 'https://supervise.ly',
+            'tags': ['image segmentation', 'object detection']
         }
     }
 
@@ -188,6 +195,9 @@ class Converter(object):
             convert_to_asr_json_manifest(
                 items, output_data, data_key=self._data_keys[0], project_dir=self.project_dir,
                 upload_dir=self.upload_dir, download_resources=self.download_resources)
+        elif format == Format.SLY:
+            image_dir = kwargs.get('image_dir')
+            self.convert_to_sly(input_data, output_data, output_image_dir=image_dir, is_dir=is_dir)
 
     def _get_data_keys_and_output_tags(self, output_tags=None):
         data_keys = set()
@@ -230,6 +240,7 @@ class Converter(object):
                                                 'PolygonLabels' in output_tag_types and 'Labels' in output_tag_types):
 
             all_formats.remove(Format.COCO.name)
+            all_formats.remove(Format.SLY.name)
         if not ('Image' in input_tag_types and ('BrushLabels' in output_tag_types or 'brushlabels' in output_tag_types or
                                                 'Brush' in output_tag_types and 'Labels' in output_tag_types)):
             all_formats.remove(Format.BRUSH_TO_NUMPY.name)
@@ -791,6 +802,137 @@ class Converter(object):
 
             with io.open(xml_filepath, mode='w', encoding='utf8') as fout:
                 doc.writexml(fout, addindent='' * 4, newl='\n', encoding='utf-8')
+
+    def convert_to_sly(self, input_data, output_dir, output_image_dir=None, is_dir=True):
+        self._check_format(Format.SLY)
+        ensure_dir(output_dir)
+        output_file = os.path.join(output_dir, 'result.json')
+        if output_image_dir is not None:
+            ensure_dir(output_image_dir)
+        else:
+            output_image_dir = os.path.join(output_dir, 'images')
+            os.makedirs(output_image_dir, exist_ok=True)
+        images, categories, annotations = [], [], []
+        categories, category_name_to_id = self._get_labels()
+        data_key = self._data_keys[0]
+        item_iterator = self.iter_from_dir(input_data) if is_dir else self.iter_from_json_file(input_data)
+        for item_idx, item in enumerate(item_iterator):
+            if not item['output']:
+                logger.warning('No annotations found for item #' + str(item_idx))
+                continue
+            image_path = item['input'][data_key]
+            if not os.path.exists(image_path):
+                try:
+                    image_path = download(image_path, output_image_dir, project_dir=self.project_dir,
+                                          return_relative_path=True, upload_dir=self.upload_dir,
+                                          download_resources=self.download_resources)
+                except:
+                    logger.error('Unable to download {image_path}. The item {item} will be skipped'.format(
+                        image_path=image_path, item=item
+                    ), exc_info=True)
+
+            # concatenate results over all tag names
+            labels = []
+            for key in item['output']:
+                labels += item['output'][key]
+
+            if len(labels) == 0:
+                logger.warning(f'Empty bboxes for {item["output"]}')
+                continue
+
+            first = True
+
+            for label in labels:
+
+                category_name = None
+                for key in ['rectanglelabels', 'polygonlabels', 'labels']:
+                    if key in label and len(label[key]) > 0:
+                        category_name = label[key][0]
+                        break
+
+                if category_name is None:
+                    logger.warning("Unknown label type or labels are empty: " + str(label))
+                    continue
+
+                # get image sizes
+                if first:
+
+                    if 'original_width' not in label or 'original_height' not in label:
+                        logger.warning(f'original_width or original_height not found in {image_path}')
+                        continue
+
+                    width, height = label['original_width'], label['original_height']
+                    image_id = len(images)
+                    images.append({
+                        'width': width,
+                        'height': height,
+                        'id': image_id,
+                        'file_name': image_path
+                    })
+                    first = False
+
+                '''if category_name not in category_name_to_id:
+                    category_id = len(categories)
+                    category_name_to_id[category_name] = category_id
+                    categories.append({
+                        'id': category_id,
+                        'name': category_name,
+                        'supercategory': category_name
+                    })'''
+                category_id = category_name_to_id[category_name]
+
+                annotation_id = len(annotations)
+
+                if 'rectanglelabels' in label or 'labels' in label:
+                    x = int(label['x'] / 100 * width)
+                    y = int(label['y'] / 100 * height)
+                    w = int(label['width'] / 100 * width)
+                    h = int(label['height'] / 100 * height)
+
+                    annotations.append({
+                        'id': annotation_id,
+                        'image_id': image_id,
+                        'category_id': category_id,
+                        'segmentation': [],
+                        'bbox': [x, y, w, h],
+                        'ignore': 0,
+                        'iscrowd': 0,
+                        'area': w * h,
+                    })
+                elif "polygonlabels" in label:
+                    points_abs = [(x / 100 * width, y / 100 * height) for x, y in label["points"]]
+                    x, y = zip(*points_abs)
+
+                    annotations.append({
+                        'id': annotation_id,
+                        'image_id': image_id,
+                        'category_id': category_id,
+                        'segmentation': [[coord for point in points_abs for coord in point]],
+                        'bbox': get_polygon_bounding_box(x, y),
+                        'ignore': 0,
+                        'iscrowd': 0,
+                        'area': get_polygon_area(x, y)
+                    })
+                else:
+                    raise ValueError("Unknown label type")
+
+                if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
+                    annotations[-1].update({'annotator': _get_annotator(item)})
+
+        with io.open(output_file, mode='w', encoding='utf8') as fout:
+            json.dump({
+                'images': images,
+                'categories': categories,
+                'annotations': annotations,
+                'info': {
+                    'year': datetime.now().year,
+                    'version': '1.0',
+                    'description': '',
+                    'contributor': 'Label Studio',
+                    'url': '',
+                    'date_created': str(datetime.now())
+                }
+            }, fout, indent=2)
 
     def _get_labels(self):
         labels = set()
