@@ -859,7 +859,6 @@ class Converter(object):
                             tmp_tag = helpers.supervisely_tag_template()
                             tmp_tag['name'] = tag
                             polygon['tags'].append(tmp_tag)
-                pass
                 category_name = None
                 for key in ['rectanglelabels', 'polygonlabels', 'labels']:
                     if key in label and len(label[key]) > 0:
@@ -869,9 +868,9 @@ class Converter(object):
                             tmp_tag['name'] = tag
                             tags.append(tmp_tag)
 
-                if category_name is None:
-                    logger.warning("Unknown label type or labels are empty: " + str(label))
-                    continue
+                # if category_name is None:
+                #     logger.warning("Unknown label type or labels are empty: " + str(label))
+                #     continue
 
                 # get image sizes
                 if first:
@@ -882,12 +881,8 @@ class Converter(object):
 
                     width, height = label['original_width'], label['original_height']
                     image_id = len(images)
-                    images.append({
-                        'width': width,
-                        'height': height,
-                        'id': image_id,
-                        'file_name': image_path
-                    })
+                    res['size']['width'] = width
+                    res['size']['height'] = height
                     first = False
 
                 '''if category_name not in category_name_to_id:
@@ -898,42 +893,17 @@ class Converter(object):
                         'name': category_name,
                         'supercategory': category_name
                     })'''
-                category_id = category_name_to_id[category_name]
+                # category_id = category_name_to_id[category_name]
 
-                annotation_id = len(annotations)
+                # annotation_id = len(annotations)
 
-                if 'rectanglelabels' in label or 'labels' in label:
-                    x = int(label['x'] / 100 * width)
-                    y = int(label['y'] / 100 * height)
-                    w = int(label['width'] / 100 * width)
-                    h = int(label['height'] / 100 * height)
-
-                    annotations.append({
-                        'id': annotation_id,
-                        'image_id': image_id,
-                        'category_id': category_id,
-                        'segmentation': [],
-                        'bbox': [x, y, w, h],
-                        'ignore': 0,
-                        'iscrowd': 0,
-                        'area': w * h,
-                    })
-                elif "polygonlabels" in label:
-                    points_abs = [(x / 100 * width, y / 100 * height) for x, y in label["points"]]
+                if "polygonlabels" in label:
+                    points_abs = [(round(x / 100 * width), round(y / 100 * height)) for x, y in label["points"]]
                     x, y = zip(*points_abs)
+                    # polygon['points']['exterior'] = [[coord for point in points_abs for coord in point]],
+                    polygon['points']['exterior'] = points_abs
 
-                    annotations.append({
-                        'id': annotation_id,
-                        'image_id': image_id,
-                        'category_id': category_id,
-                        'segmentation': [[coord for point in points_abs for coord in point]],
-                        'bbox': get_polygon_bounding_box(x, y),
-                        'ignore': 0,
-                        'iscrowd': 0,
-                        'area': get_polygon_area(x, y)
-                    })
-                else:
-                    raise ValueError("Unknown label type")
+                res['objects'].append(polygon)
 
                 if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
                     annotations[-1].update({'annotator': _get_annotator(item)})
