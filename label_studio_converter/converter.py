@@ -16,6 +16,7 @@ from collections import defaultdict
 from operator import itemgetter
 from copy import deepcopy
 
+from label_converters import helpers
 from label_studio_converter.utils import (
     parse_config, create_tokens_and_tags, download, get_image_size, get_image_size_and_channels, ensure_dir,
     get_polygon_area, get_polygon_bounding_box, _get_annotator
@@ -803,7 +804,9 @@ class Converter(object):
             with io.open(xml_filepath, mode='w', encoding='utf8') as fout:
                 doc.writexml(fout, addindent='' * 4, newl='\n', encoding='utf-8')
 
-    def convert_to_sly(self, input_data, output_dir, output_image_dir=None, is_dir=True):
+    def convert_to_sly(self, input_data, output_dir, output_image_dir=None, is_dir=True, image_dir='/Volumes/data/github/label-studio-converter/examples/horst1/images'):
+        valid_classes = ("lymphnode", "hilus")
+        valid_tags = ("maligne", "benigne")
         self._check_format(Format.SLY)
         ensure_dir(output_dir)
         output_file = os.path.join(output_dir, 'result.json')
@@ -817,10 +820,14 @@ class Converter(object):
         data_key = self._data_keys[0]
         item_iterator = self.iter_from_dir(input_data) if is_dir else self.iter_from_json_file(input_data)
         for item_idx, item in enumerate(item_iterator):
+            res = helpers.supervisely_template()
             if not item['output']:
                 logger.warning('No annotations found for item #' + str(item_idx))
                 continue
             image_path = item['input'][data_key]
+            if not os.path.exists(image_path):
+                image_name = os.path.split(image_path)[-1]
+                image_path = os.path.join(image_dir, image_name)
             if not os.path.exists(image_path):
                 try:
                     image_path = download(image_path, output_image_dir, project_dir=self.project_dir,
@@ -837,18 +844,30 @@ class Converter(object):
                 labels += item['output'][key]
 
             if len(labels) == 0:
-                logger.warning(f'Empty bboxes for {item["output"]}')
+                logger.warning(f'Empty segmentations for {item["output"]}')
                 continue
 
             first = True
 
             for label in labels:
-
+                polygon = helpers.supervisely_polygon_template()
+                if "polygonlabels" in label:
+                    for tag in label["polygonlabels"]:
+                        if tag in valid_classes:
+                            polygon["classTitle"] = tag
+                        if tag in valid_tags:
+                            tmp_tag = helpers.supervisely_tag_template()
+                            tmp_tag['name'] = tag
+                            polygon['tags'].append(tmp_tag)
+                pass
                 category_name = None
                 for key in ['rectanglelabels', 'polygonlabels', 'labels']:
                     if key in label and len(label[key]) > 0:
-                        category_name = label[key][0]
-                        break
+                        tags = []
+                        for tag in label[key]:
+                            tmp_tag = helpers.supervisely_tag_template()
+                            tmp_tag['name'] = tag
+                            tags.append(tmp_tag)
 
                 if category_name is None:
                     logger.warning("Unknown label type or labels are empty: " + str(label))
