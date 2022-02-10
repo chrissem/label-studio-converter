@@ -16,12 +16,12 @@ from collections import defaultdict
 from operator import itemgetter
 from copy import deepcopy
 
-from label_converters import helpers
 from label_studio_converter.utils import (
     parse_config, create_tokens_and_tags, download, get_image_size, get_image_size_and_channels, ensure_dir,
     get_polygon_area, get_polygon_bounding_box, _get_annotator
 )
 from label_studio_converter import brush
+from label_studio_converter import helpers
 from label_studio_converter.audio import convert_to_asr_json_manifest
 
 logger = logging.getLogger(__name__)
@@ -804,12 +804,11 @@ class Converter(object):
             with io.open(xml_filepath, mode='w', encoding='utf8') as fout:
                 doc.writexml(fout, addindent='' * 4, newl='\n', encoding='utf-8')
 
-    def convert_to_sly(self, input_data, output_dir, output_image_dir=None, is_dir=True, image_dir='/Volumes/data/github/label-studio-converter/examples/horst1/images'):
+    def convert_to_sly(self, input_data, output_dir, output_image_dir=None, is_dir=True, input_image_dir=None):
         valid_classes = ("lymphnode", "hilus")
         valid_tags = ("maligne", "benigne")
         self._check_format(Format.SLY)
         ensure_dir(output_dir)
-        output_file = os.path.join(output_dir, 'result.json')
         if output_image_dir is not None:
             ensure_dir(output_image_dir)
         else:
@@ -825,9 +824,10 @@ class Converter(object):
                 logger.warning('No annotations found for item #' + str(item_idx))
                 continue
             image_path = item['input'][data_key]
+            image_name = os.path.split(image_path)[-1]
+            output_file = os.path.join(output_dir, image_name + '.json')
             if not os.path.exists(image_path):
-                image_name = os.path.split(image_path)[-1]
-                image_path = os.path.join(image_dir, image_name)
+                image_path = os.path.join(input_image_dir, image_name)
             if not os.path.exists(image_path):
                 try:
                     image_path = download(image_path, output_image_dir, project_dir=self.project_dir,
@@ -859,7 +859,6 @@ class Converter(object):
                             tmp_tag = helpers.supervisely_tag_template()
                             tmp_tag['name'] = tag
                             polygon['tags'].append(tmp_tag)
-                category_name = None
                 for key in ['rectanglelabels', 'polygonlabels', 'labels']:
                     if key in label and len(label[key]) > 0:
                         tags = []
@@ -868,13 +867,9 @@ class Converter(object):
                             tmp_tag['name'] = tag
                             tags.append(tmp_tag)
 
-                # if category_name is None:
-                #     logger.warning("Unknown label type or labels are empty: " + str(label))
-                #     continue
 
                 # get image sizes
                 if first:
-
                     if 'original_width' not in label or 'original_height' not in label:
                         logger.warning(f'original_width or original_height not found in {image_path}')
                         continue
@@ -898,7 +893,7 @@ class Converter(object):
                 # annotation_id = len(annotations)
 
                 if "polygonlabels" in label:
-                    points_abs = [(round(x / 100 * width), round(y / 100 * height)) for x, y in label["points"]]
+                    points_abs = [[round(x / 100 * width), round(y / 100 * height)] for x, y in label["points"]]
                     x, y = zip(*points_abs)
                     # polygon['points']['exterior'] = [[coord for point in points_abs for coord in point]],
                     polygon['points']['exterior'] = points_abs
@@ -908,20 +903,8 @@ class Converter(object):
                 if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
                     annotations[-1].update({'annotator': _get_annotator(item)})
 
-        with io.open(output_file, mode='w', encoding='utf8') as fout:
-            json.dump({
-                'images': images,
-                'categories': categories,
-                'annotations': annotations,
-                'info': {
-                    'year': datetime.now().year,
-                    'version': '1.0',
-                    'description': '',
-                    'contributor': 'Label Studio',
-                    'url': '',
-                    'date_created': str(datetime.now())
-                }
-            }, fout, indent=2)
+            with io.open(output_file, mode='w', encoding='utf8') as fout:
+                json.dump(res, fout, indent=2)
 
     def _get_labels(self):
         labels = set()
