@@ -28,6 +28,8 @@ from label_studio_converter.audio import convert_to_asr_json_manifest
 
 logger = logging.getLogger(__name__)
 
+class ContinueI(Exception):
+    pass
 
 class FormatNotSupportedError(NotImplementedError):
     pass
@@ -807,13 +809,16 @@ class Converter(object):
                 doc.writexml(fout, addindent='' * 4, newl='\n', encoding='utf-8')
 
     def convert_to_sly(self, input_data, output_dir, input_image_dir=None, tags2classes=False):
-        valid_classes = ("lymphnode", "hilus")
-        valid_tags = ("maligne", "benigne", "inflammatory")
+        valid_image_tags = ("Unclear", "Exclude")
+        valid_object_classes = ("lymphnode", "hilus")
+        valid_object_tags = ("maligne", "benigne", "inflammatory")
         self._check_format(Format.SLY)
         ensure_dir(output_dir)
-        output_image_dir = os.path.join(output_dir, 'img')
+        output_dataset_dir = os.path.join(output_dir, 'ds')
+        ensure_dir(output_dataset_dir)
+        output_image_dir = os.path.join(output_dataset_dir, 'img')
         ensure_dir(output_image_dir)
-        output_ann_dir = os.path.join(output_dir, 'ann')
+        output_ann_dir = os.path.join(output_dataset_dir, 'ann')
         ensure_dir(output_ann_dir)
 
         images, categories, annotations = [], [], []
@@ -851,60 +856,80 @@ class Converter(object):
 
             first = True
 
-            for label in labels:
-                polygon = helpers.supervisely_polygon_template()
-                if "polygonlabels" in label:
-                    for tag in label["polygonlabels"]:
-                        if tag in valid_classes:
-                            polygon["classTitle"] = tag
-                        if tag in valid_tags:
-                            tmp_tag = helpers.supervisely_tag_template()
-                            tmp_tag['name'] = tag
-                            polygon['tags'].append(tmp_tag)
-                for key in ['rectanglelabels', 'polygonlabels', 'labels']:
-                    if key in label and len(label[key]) > 0:
-                        tags = []
-                        for tag in label[key]:
-                            tmp_tag = helpers.supervisely_tag_template()
-                            tmp_tag['name'] = tag
-                            tags.append(tmp_tag)
+            try:
+                for label in labels:
+                    polygon = helpers.supervisely_polygon_template()
+                    if "choices" in label:
+                        if 'Unclear' in label['choices'] or 'Exclude' in label['choices']:
+                            print("Exclude!!")
+                            raise ContinueI()
+                    if "polygonlabels" in label:
+                        for tag in label["polygonlabels"]:
+                            if tags2classes:
+                                if not polygon["classTitle"]:
+                                    polygon["classTitle"] = tag
+                                else:
+                                    polygon["classTitle"] = polygon["classTitle"] + "_" + tag
+                            else:
+                                if tag in valid_object_classes:
+                                    polygon["classTitle"] = tag
+                                if tag in valid_object_tags:
+                                    tmp_tag = helpers.supervisely_tag_template()
+                                    tmp_tag['name'] = tag
+                                    polygon['tags'].append(tmp_tag)
+
+                    # for key in ['rectanglelabels', 'polygonlabels', 'labels']:
+                    #     if key in label and len(label[key]) > 0:
+                    #         tags = []
+                    #         for tag in label[key]:
+                    #             tmp_tag = helpers.supervisely_tag_template()
+                    #             tmp_tag['name'] = tag
+                    #             tags.append(tmp_tag)
 
 
-                # get image sizes
-                if first:
-                    if 'original_width' not in label or 'original_height' not in label:
-                        logger.warning(f'original_width or original_height not found in {image_path}')
+                    # get image sizes
+                    if first:
+                        if 'original_width' not in label or 'original_height' not in label:
+                            logger.warning(f'original_width or original_height not found in {image_path}')
+                            continue
+
+                        width, height = label['original_width'], label['original_height']
+                        image_id = len(images)
+                        res['size']['width'] = width
+                        res['size']['height'] = height
+                        first = False
+
+                    '''if category_name not in category_name_to_id:
+                        category_id = len(categories)
+                        category_name_to_id[category_name] = category_id
+                        categories.append({
+                            'id': category_id,
+                            'name': category_name,
+                            'supercategory': category_name
+                        })'''
+                    # category_id = category_name_to_id[category_name]
+
+                    # annotation_id = len(annotations)
+
+                    if "polygonlabels" in label:
+                        points_abs = [[round(x / 100 * width), round(y / 100 * height)] for x, y in label["points"]]
+                        x, y = zip(*points_abs)
+                        # polygon['points']['exterior'] = [[coord for point in points_abs for coord in point]],
+                        polygon['points']['exterior'] = points_abs
+
+                    # HACK
+                    if polygon['classTitle'] == 'lymphnode_benigne_inflammatory':
+                        polygon['classTitle'] = 'lymphnode_benigne'
+                    if "hilus" in polygon['classTitle']:
                         continue
+                    if polygon['classTitle'] == "lymphnode":
+                        continue
+                    res['objects'].append(polygon)
 
-                    width, height = label['original_width'], label['original_height']
-                    image_id = len(images)
-                    res['size']['width'] = width
-                    res['size']['height'] = height
-                    first = False
-
-                '''if category_name not in category_name_to_id:
-                    category_id = len(categories)
-                    category_name_to_id[category_name] = category_id
-                    categories.append({
-                        'id': category_id,
-                        'name': category_name,
-                        'supercategory': category_name
-                    })'''
-                # category_id = category_name_to_id[category_name]
-
-                # annotation_id = len(annotations)
-
-                if "polygonlabels" in label:
-                    points_abs = [[round(x / 100 * width), round(y / 100 * height)] for x, y in label["points"]]
-                    x, y = zip(*points_abs)
-                    # polygon['points']['exterior'] = [[coord for point in points_abs for coord in point]],
-                    polygon['points']['exterior'] = points_abs
-
-                res['objects'].append(polygon)
-
-                if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
-                    annotations[-1].update({'annotator': _get_annotator(item)})
-
+                    if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
+                        annotations[-1].update({'annotator': _get_annotator(item)})
+            except ContinueI:
+                continue
             with io.open(output_file, mode='w', encoding='utf8') as fout:
                 json.dump(res, fout, indent=2)
 

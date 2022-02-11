@@ -35,6 +35,15 @@
             "hotkey": "",
             "applicable_type": "objectsOnly",
             "classes": []
+        },
+        {
+            "name": "inflammatory",
+            "value_type": "none",
+            "color": "#FF00E8",
+            "id": 30136023,
+            "hotkey": "",
+            "applicable_type": "objectsOnly",
+            "classes": []
         }
     ],
     "projectType": "images"

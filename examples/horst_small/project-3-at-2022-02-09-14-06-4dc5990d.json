@@ -7,6 +7,14 @@
         "completed_by": 1,
         "result": [
           {
+            "id": "r1Mv4pfO5V",
+            "type": "choices",
+            "value": { "choices": ["Unclear", "Exclude"] },
+            "origin": "manual",
+            "to_name": "image",
+            "from_name": "tags"
+          },
+          {
             "id": "G4M5Q7L-Nt",
             "type": "polygonlabels",
             "value": {
@@ -494,6 +502,14 @@
             "image_rotation": 0,
             "original_width": 602,
             "original_height": 342
+          },
+          {
+            "id": "r1Mv4pfO5V",
+            "type": "choices",
+            "value": { "choices": ["Unclear", "Exclude"] },
+            "origin": "manual",
+            "to_name": "image",
+            "from_name": "tags"
           }
         ],
         "lead_time": 107.402,
