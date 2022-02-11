@@ -88,8 +88,7 @@ def main():
     elif args.format == Format.COCO:
         c.convert_to_coco(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format)
     elif args.format == Format.SLY:
-        c.convert_to_sly(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format,
-                         input_image_dir=args.input_image_dir, tags2classes=args.tags2classes)
+        c.convert_to_sly(args.input, args.output, input_image_dir=args.input_image_dir, tags2classes=args.tags2classes)
     elif args.format == Format.VOC:
         c.convert_to_voc(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format)
 

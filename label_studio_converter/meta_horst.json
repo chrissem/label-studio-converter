@@ -1,0 +1,41 @@
+{
+    "classes": [
+        {
+            "title": "lymphnode",
+            "shape": "polygon",
+            "color": "#FAA53D",
+            "geometry_config": {},
+            "id": 9961858,
+            "hotkey": ""
+        },
+        {
+            "title": "hilus",
+            "shape": "polygon",
+            "color": "#311895",
+            "geometry_config": {},
+            "id": 9961859,
+            "hotkey": ""
+        }
+    ],
+    "tags": [
+        {
+            "name": "maligne",
+            "value_type": "none",
+            "color": "#C039A5",
+            "id": 30136021,
+            "hotkey": "",
+            "applicable_type": "objectsOnly",
+            "classes": []
+        },
+        {
+            "name": "benigne",
+            "value_type": "none",
+            "color": "#9521E8",
+            "id": 30136022,
+            "hotkey": "",
+            "applicable_type": "objectsOnly",
+            "classes": []
+        }
+    ],
+    "projectType": "images"
+}

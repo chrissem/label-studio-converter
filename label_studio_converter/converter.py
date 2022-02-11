@@ -3,6 +3,8 @@ import json
 import io
 import math
 import logging
+import shutil
+
 import pandas as pd
 import xml.dom
 import xml.dom.minidom
@@ -804,21 +806,20 @@ class Converter(object):
             with io.open(xml_filepath, mode='w', encoding='utf8') as fout:
                 doc.writexml(fout, addindent='' * 4, newl='\n', encoding='utf-8')
 
-    def convert_to_sly(self, input_data, output_dir, output_image_dir=None, is_dir=True, input_image_dir=None,
-                       tags2classes=False):
+    def convert_to_sly(self, input_data, output_dir, input_image_dir=None, tags2classes=False):
         valid_classes = ("lymphnode", "hilus")
         valid_tags = ("maligne", "benigne", "inflammatory")
         self._check_format(Format.SLY)
         ensure_dir(output_dir)
-        if output_image_dir is not None:
-            ensure_dir(output_image_dir)
-        else:
-            output_image_dir = os.path.join(output_dir, 'images')
-            os.makedirs(output_image_dir, exist_ok=True)
+        output_image_dir = os.path.join(output_dir, 'img')
+        ensure_dir(output_image_dir)
+        output_ann_dir = os.path.join(output_dir, 'ann')
+        ensure_dir(output_ann_dir)
+
         images, categories, annotations = [], [], []
         categories, category_name_to_id = self._get_labels()
         data_key = self._data_keys[0]
-        item_iterator = self.iter_from_dir(input_data) if is_dir else self.iter_from_json_file(input_data)
+        item_iterator = self.iter_from_dir(input_data)
         for item_idx, item in enumerate(item_iterator):
             res = helpers.supervisely_template()
             if not item['output']:
@@ -826,7 +827,7 @@ class Converter(object):
                 continue
             image_path = item['input'][data_key]
             image_name = os.path.split(image_path)[-1]
-            output_file = os.path.join(output_dir, image_name + '.json')
+            output_file = os.path.join(output_ann_dir, image_name + '.json')
             if not os.path.exists(image_path):
                 image_path = os.path.join(input_image_dir, image_name)
             if not os.path.exists(image_path):
@@ -907,6 +908,14 @@ class Converter(object):
             with io.open(output_file, mode='w', encoding='utf8') as fout:
                 json.dump(res, fout, indent=2)
 
+            # Save image file
+            shutil.copy(image_path, os.path.join(output_image_dir, image_name))
+
+        # Use FSOCO project meta file
+        shutil.copy(
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), "meta_horst.json"),
+            os.path.join(output_dir, "meta.json"),
+        )
     def _get_labels(self):
         labels = set()
         categories = list()
