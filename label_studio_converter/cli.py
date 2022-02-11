@@ -66,6 +66,11 @@ def main():
         '--heartex-format', dest='heartex_format', action='store_true',
         help='Set this flag if your completions are coming from Heartex platform instead of Label Studio'
     )
+    parser.add_argument(
+        '--tags2classes', dest='tags2classes',
+        help='convert all tags to classes (class1_tag1_tag2)',
+        action='store_true'
+    )
     args = parser.parse_args()
 
     with io.open(args.config) as f:
@@ -84,7 +89,7 @@ def main():
         c.convert_to_coco(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format)
     elif args.format == Format.SLY:
         c.convert_to_sly(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format,
-                         input_image_dir=args.input_image_dir)
+                         input_image_dir=args.input_image_dir, tags2classes=args.tags2classes)
     elif args.format == Format.VOC:
         c.convert_to_voc(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format)
 

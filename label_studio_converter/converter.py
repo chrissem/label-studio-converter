@@ -804,9 +804,10 @@ class Converter(object):
             with io.open(xml_filepath, mode='w', encoding='utf8') as fout:
                 doc.writexml(fout, addindent='' * 4, newl='\n', encoding='utf-8')
 
-    def convert_to_sly(self, input_data, output_dir, output_image_dir=None, is_dir=True, input_image_dir=None):
+    def convert_to_sly(self, input_data, output_dir, output_image_dir=None, is_dir=True, input_image_dir=None,
+                       tags2classes=False):
         valid_classes = ("lymphnode", "hilus")
-        valid_tags = ("maligne", "benigne")
+        valid_tags = ("maligne", "benigne", "inflammatory")
         self._check_format(Format.SLY)
         ensure_dir(output_dir)
         if output_image_dir is not None:

@@ -1,0 +1,16 @@
+<View style="width:768px; margin-left: 1em">
+  <Header value="Per Image"/>
+  <Choices name="tags" choice="multiple" toName="image" perRegion="false" required="false">
+    <Choice value="Unclear"/>
+    <Choice value="Exclude"/>
+  </Choices>
+  <Header value="Structure Segmentations"/>
+  <PolygonLabels name="structure" toName="image" choice="multiple" strokeWidth="2" pointSize="small" opacity="0.4">
+    <Label value="lymphnode" background="blue" hotkey="1"/>
+    <Label value="hilus" background="green" hotkey="2"/>
+    <Label value="maligne" background="black" hotkey="3"/>
+    <Label value="benigne" background="black" hotkey="4"/>
+    <Label value="inflammatory" background="black" hotkey="5"/>
+  </PolygonLabels>
+  <Image name="image" value="$image" zoom="true" zoomControl="true" maxWidth="4164px" brightnessControl="true" contrastControl="true"/>
+</View>
