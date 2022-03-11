@@ -855,7 +855,7 @@ class Converter(object):
                 continue
 
             first = True
-
+            tagged = False
             try:
                 for label in labels:
                     polygon = helpers.supervisely_polygon_template()
@@ -863,6 +863,11 @@ class Converter(object):
                         if 'Unclear' in label['choices'] or 'Exclude' in label['choices']:
                             print("Exclude!!")
                             raise ContinueI()
+                        if 'val' in label['choices']:
+                            res['tags'].append({'name': 'val', 'value': None})
+                            tagged = True
+                        # if 'train' in label['choices']:
+                        #     res['tags'].append({'name': 'train'})
                     if "polygonlabels" in label:
                         for tag in label["polygonlabels"]:
                             if tags2classes:
@@ -928,6 +933,8 @@ class Converter(object):
 
                     if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
                         annotations[-1].update({'annotator': _get_annotator(item)})
+                if not tagged:
+                    res['tags'].append({'name': 'train', 'value': None})
             except ContinueI:
                 continue
             with io.open(output_file, mode='w', encoding='utf8') as fout:
@@ -938,7 +945,8 @@ class Converter(object):
 
         # Use FSOCO project meta file
         shutil.copy(
-            os.path.join(os.path.dirname(os.path.realpath(__file__)), "meta_horst.json"),
+            # os.path.join(os.path.dirname(os.path.realpath(__file__)), "meta_horst.json"),
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), "meta_horst_train_val.json"),
             os.path.join(output_dir, "meta.json"),
         )
     def _get_labels(self):

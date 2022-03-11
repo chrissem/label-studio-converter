@@ -3,6 +3,8 @@
   <Choices name="tags" choice="multiple" toName="image" perRegion="false" required="false">
     <Choice value="Unclear"/>
     <Choice value="Exclude"/>
+    <Choice value="train"/>
+    <Choice value="val"/>
   </Choices>
   <Header value="Structure Segmentations"/>
   <PolygonLabels name="structure" toName="image" choice="multiple" strokeWidth="2" pointSize="small" opacity="0.4">
