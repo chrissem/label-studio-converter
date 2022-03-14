@@ -922,14 +922,14 @@ class Converter(object):
                         # polygon['points']['exterior'] = [[coord for point in points_abs for coord in point]],
                         polygon['points']['exterior'] = points_abs
 
-                    # HACK
-                    if polygon['classTitle'] == 'lymphnode_benigne_inflammatory':
-                        polygon['classTitle'] = 'lymphnode_benigne'
-                    if "hilus" in polygon['classTitle']:
-                        continue
-                    if polygon['classTitle'] == "lymphnode":
-                        continue
-                    res['objects'].append(polygon)
+                        # HACK
+                        if polygon['classTitle'] == 'lymphnode_benigne_inflammatory':
+                            polygon['classTitle'] = 'lymphnode_benigne'
+                        if "hilus" in polygon['classTitle']:
+                            continue
+                        if polygon['classTitle'] == "lymphnode":
+                            continue
+                        res['objects'].append(polygon)
 
                     if os.getenv('LABEL_STUDIO_FORCE_ANNOTATOR_EXPORT'):
                         annotations[-1].update({'annotator': _get_annotator(item)})
