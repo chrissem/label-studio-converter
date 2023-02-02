@@ -17,6 +17,7 @@ from collections.abc import Mapping, MutableMapping
 from collections import defaultdict
 from operator import itemgetter
 from copy import deepcopy
+from PIL import Image
 
 from label_studio_converter.utils import (
     parse_config, create_tokens_and_tags, download, get_image_size, get_image_size_and_channels, ensure_dir,
@@ -144,9 +145,19 @@ class Converter(object):
         return self._FORMAT_INFO
 
     def __init__(self, config, project_dir, output_tags=None, upload_dir=None, download_resources=True):
+        """ Initialize Label Studio Converter for Exports
+
+        :param config: string or dict: XML string with Label studio labeling config or path to this file or parsed_config
+        :param project_dir: upload root directory for images, audio and other labeling files
+        :param output_tags: it will be calculated automatically, contains label names
+        :param upload_dir: upload root directory with files that were imported using LS GUI
+        :param download_resources: if True, LS will try to download images, audio, etc and include them to export
+        """
         self.project_dir = project_dir
         self.upload_dir = upload_dir
         self.download_resources = download_resources
+        self._schema = None
+
         if isinstance(config, dict):
             self._schema = config
         elif isinstance(config, str):
@@ -156,6 +167,11 @@ class Converter(object):
             else:
                 config_string = config
             self._schema = parse_config(config_string)
+
+        if self._schema is None:
+            logger.warning('Label config or schema for Converter is not provided, '
+                           'it might be critical for some export formats, now set schema to empty dict')
+            self._schema = {}
 
         self._data_keys, self._output_tags = self._get_data_keys_and_output_tags(output_tags)
         self._supported_formats = self._get_supported_formats()
@@ -210,7 +226,7 @@ class Converter(object):
         if output_tags is not None:
             for tag in output_tags:
                 if tag not in self._schema:
-                    logger.warning(
+                    logger.debug(
                         'Specified tag "{tag}" not found in config schema: '
                         'available options are {schema_keys}'.format(
                             tag=tag, schema_keys=str(list(self._schema.keys()))))
@@ -238,7 +254,6 @@ class Converter(object):
         if not ('Image' in input_tag_types and ('RectangleLabels' in output_tag_types or
                                                 'Rectangle' in output_tag_types and 'Labels' in output_tag_types)):
             all_formats.remove(Format.VOC.name)
-            all_formats.remove(Format.YOLO.name)
         if not ('Image' in input_tag_types and ('RectangleLabels' in output_tag_types or
                                                 'PolygonLabels' in output_tag_types) or
                                                 'Rectangle' in output_tag_types and 'Labels' in output_tag_types or
@@ -246,6 +261,7 @@ class Converter(object):
 
             all_formats.remove(Format.COCO.name)
             all_formats.remove(Format.SLY.name)
+            all_formats.remove(Format.YOLO.name)
         if not ('Image' in input_tag_types and ('BrushLabels' in output_tag_types or 'brushlabels' in output_tag_types or
                                                 'Brush' in output_tag_types and 'Labels' in output_tag_types)):
             all_formats.remove(Format.BRUSH_TO_NUMPY.name)
@@ -296,6 +312,11 @@ class Converter(object):
         # get last not skipped completion and make result from it
         annotations = task['annotations'] if 'annotations' in task else task['completions']
 
+        # return task with empty annotations
+        if not annotations:
+            data = Converter.get_data(task, {}, {})
+            yield data
+
         # skip cancelled annotations
         cancelled = lambda x: not (x.get('skipped', False) or x.get('was_cancelled', False))
         annotations = list(filter(cancelled, annotations))
@@ -306,7 +327,6 @@ class Converter(object):
         annotations = sorted(annotations, key=lambda x: x.get('created_at', 0), reverse=True)
 
         for annotation in annotations:
-            inputs = task['data']
             result = annotation['result']
             outputs = defaultdict(list)
 
@@ -321,19 +341,23 @@ class Converter(object):
                         v['original_height'] = r['original_height']
                     outputs[r['from_name']].append(v)
 
-            data = {
-                'id': task['id'],
-                'input': inputs,
-                'output': outputs,
-                'completed_by': annotation.get('completed_by', {}),
-                'annotation_id': annotation.get('id'),
-                'created_at': annotation.get('created_at'),
-                'updated_at': annotation.get('updated_at'),
-                'lead_time': annotation.get('lead_time')
-            }
+            data = Converter.get_data(task, outputs, annotation)
             if 'agreement' in task:
                 data['agreement'] = task['agreement']
             yield data
+
+    @staticmethod
+    def get_data(task, outputs, annotation):
+        return {
+            'id': task['id'],
+            'input': task['data'],
+            'output': outputs or {},
+            'completed_by': annotation.get('completed_by', {}),
+            'annotation_id': annotation.get('id'),
+            'created_at': annotation.get('created_at'),
+            'updated_at': annotation.get('updated_at'),
+            'lead_time': annotation.get('lead_time')
+        }
 
     def _check_format(self, fmt):
         pass
@@ -393,10 +417,14 @@ class Converter(object):
 
     def convert_to_csv(self, input_data, output_dir, is_dir=True, **kwargs):
         self._check_format(Format.CSV)
-        ensure_dir(output_dir)
-        output_file = os.path.join(output_dir, 'result.csv')
+        if str(output_dir).endswith('.csv'):
+            output_file = output_dir
+        else:
+            ensure_dir(output_dir)
+            output_file = os.path.join(output_dir, 'result.csv')
         records = []
         item_iterator = self.iter_from_dir if is_dir else self.iter_from_json_file
+        keys = set()
 
         for item in item_iterator(input_data):
             record = deepcopy(item['input'])
@@ -405,6 +433,9 @@ class Converter(object):
             for name, value in item['output'].items():
                 pretty_value = self._prettify(value)
                 record[name] = pretty_value if isinstance(pretty_value, str) else json.dumps(pretty_value, ensure_ascii=False)
+            for name, value in item['input'].items():
+                if isinstance(value, dict) or isinstance(value, list):
+                    record[name] = json.dumps(value, ensure_ascii=False)
             record['annotator'] = _get_annotator(item)
             record['annotation_id'] = item['annotation_id']
             record['created_at'] = item['created_at']
@@ -413,8 +444,28 @@ class Converter(object):
             if 'agreement' in item:
                 record['agreement'] = item['agreement']
             records.append(record)
+            keys.update(list(record.keys()))
 
-        pd.DataFrame.from_records(records).to_csv(output_file, index=False, **kwargs)
+        # Previously we were using pandas dataframe to_csv() but that produced incorrect JSON so writing manually
+        with open(output_file, 'w', encoding='utf8') as outfile:
+            if records:
+                if kwargs['header']:
+                    outfile.write(kwargs['sep'].join(keys) + '\n')
+                for record in records:
+                    line = []
+                    for key in keys:
+                        if record.get(key) is None:
+                            line.append('')
+                        elif key == 'annotation_id':
+                            # Replicating previous implementation of converting None values to pandas.NA
+                            # which outputs in CSV files as an empty string
+                            if record[key] is None:
+                                line.append('')
+                            else:
+                                line.append(str(record[key]))
+                        else:
+                            line.append(str(record[key]))
+                    outfile.write(kwargs['sep'].join(line) + '\n')
 
     def convert_to_conll2003(self, input_data, output_dir, is_dir=True):
         self._check_format(Format.CONLL2003)
@@ -436,6 +487,16 @@ class Converter(object):
                 fout.write('\n')
 
     def convert_to_coco(self, input_data, output_dir, output_image_dir=None, is_dir=True):
+
+        def add_image(images, width, height, image_id, image_path):
+            images.append({
+                'width': width,
+                'height': height,
+                'id': image_id,
+                'file_name': image_path
+            })
+            return images
+
         self._check_format(Format.COCO)
         ensure_dir(output_dir)
         output_file = os.path.join(output_dir, 'result.json')
@@ -449,30 +510,47 @@ class Converter(object):
         data_key = self._data_keys[0]
         item_iterator = self.iter_from_dir(input_data) if is_dir else self.iter_from_json_file(input_data)
         for item_idx, item in enumerate(item_iterator):
-            if not item['output']:
-                logger.warning('No annotations found for item #' + str(item_idx))
-                continue
             image_path = item['input'][data_key]
+            image_id = len(images)
+            width = None
+            height = None
+            # download all images of the dataset, including the ones without annotations
             if not os.path.exists(image_path):
                 try:
                     image_path = download(image_path, output_image_dir, project_dir=self.project_dir,
                                           return_relative_path=True, upload_dir=self.upload_dir,
                                           download_resources=self.download_resources)
                 except:
-                    logger.error('Unable to download {image_path}. The item {item} will be skipped'.format(
+                    logger.info('Unable to download {image_path}. The image of {item} will be skipped'.format(
                         image_path=image_path, item=item
                     ), exc_info=True)
+            # add image to final images list
+            try:
+                with Image.open(os.path.join(output_dir, image_path)) as img:
+                    width, height = img.size
+                images = add_image(images, width, height, image_id, image_path)
+            except:
+                logger.info("Unable to open {image_path}, can't extract width and height for COCO export".format(
+                    image_path=image_path, item=item
+                ), exc_info=True)
 
+            # skip tasks without annotations
+            if not item['output']:
+                # image wasn't load and there are no labels
+                if not width:
+                    images = add_image(images, width, height, image_id, image_path)
+
+                logger.warning('No annotations found for item #' + str(item_idx))
+                continue
+          
             # concatenate results over all tag names
             labels = []
             for key in item['output']:
                 labels += item['output'][key]
 
             if len(labels) == 0:
-                logger.warning(f'Empty bboxes for {item["output"]}')
+                logger.debug(f'Empty bboxes for {item["output"]}')
                 continue
-
-            first = True
 
             for label in labels:
 
@@ -483,43 +561,28 @@ class Converter(object):
                         break
 
                 if category_name is None:
-                    logger.warning("Unknown label type or labels are empty: " + str(label))
+                    logger.warning("Unknown label type or labels are empty")
                     continue
 
-                # get image sizes
-                if first:
-
+                if not height or not width:
                     if 'original_width' not in label or 'original_height' not in label:
-                        logger.warning(f'original_width or original_height not found in {image_path}')
+                        logger.debug(f'original_width or original_height not found in {image_path}')
                         continue
 
                     width, height = label['original_width'], label['original_height']
-                    image_id = len(images)
-                    images.append({
-                        'width': width,
-                        'height': height,
-                        'id': image_id,
-                        'file_name': image_path
-                    })
-                    first = False
+                    images = add_image(images, width, height, image_id, image_path)
 
-                '''if category_name not in category_name_to_id:
-                    category_id = len(categories)
-                    category_name_to_id[category_name] = category_id
-                    categories.append({
-                        'id': category_id,
-                        'name': category_name,
-                        'supercategory': category_name
-                    })'''
                 category_id = category_name_to_id[category_name]
 
                 annotation_id = len(annotations)
 
                 if 'rectanglelabels' in label or 'labels' in label:
-                    x = int(label['x'] / 100 * width)
-                    y = int(label['y'] / 100 * height)
-                    w = int(label['width'] / 100 * width)
-                    h = int(label['height'] / 100 * height)
+                    x, y, w, h = self.rotated_rectangle(label)
+                    
+                    x = x * label["original_width"] / 100
+                    y = y * label["original_height"] / 100
+                    w = w * label["original_width"] / 100
+                    h = h * label["original_height"] / 100
 
                     annotations.append({
                         'id': annotation_id,
@@ -566,7 +629,24 @@ class Converter(object):
                 }
             }, fout, indent=2)
 
-    def convert_to_yolo(self, input_data, output_dir, output_image_dir=None, output_label_dir=None, is_dir=True):
+    def convert_to_yolo(self, input_data, output_dir, output_image_dir=None, output_label_dir=None, is_dir=True, split_labelers=False):
+        """Convert data in a specific format to the YOLO format.
+
+        Parameters
+        ----------
+        input_data : str
+            The input data, either a directory or a JSON file.
+        output_dir : str
+            The directory to store the output files in.
+        output_image_dir : str, optional
+            The directory to store the image files in. If not provided, it will default to a subdirectory called 'images' in output_dir.
+        output_label_dir : str, optional
+            The directory to store the label files in. If not provided, it will default to a subdirectory called 'labels' in output_dir.
+        is_dir : bool, optional
+            A boolean indicating whether `input_data` is a directory (True) or a JSON file (False).
+        split_labelers : bool, optional
+            A boolean indicating whether to create a dedicated subfolder for each labeler in the output label directory.
+        """
         self._check_format(Format.YOLO)
         ensure_dir(output_dir)
         notes_file = os.path.join(output_dir, 'notes.json')
@@ -585,19 +665,30 @@ class Converter(object):
         data_key = self._data_keys[0]
         item_iterator = self.iter_from_dir(input_data) if is_dir else self.iter_from_json_file(input_data)
         for item_idx, item in enumerate(item_iterator):
-            if not item['output']:
-                logger.warning('No completions found for item #' + str(item_idx))
-                continue
+            # get image path and label file path
             image_path = item['input'][data_key]
+            # Download image
             if not os.path.exists(image_path):
                 try:
                     image_path = download(image_path, output_image_dir, project_dir=self.project_dir,
                                           return_relative_path=True, upload_dir=self.upload_dir,
                                           download_resources=self.download_resources)
                 except:
-                    logger.error('Unable to download {image_path}. The item {item} will be skipped'.format(
+                    logger.info('Unable to download {image_path}. The item {item} will be skipped'.format(
                         image_path=image_path, item=item
                     ), exc_info=True)
+            # create dedicated subfolder for each labeler if split_labelers=True 
+            labeler_subfolder = str(item['completed_by']) if split_labelers else ''
+            os.makedirs(os.path.join(output_label_dir, labeler_subfolder), exist_ok=True)
+            # identify label file path
+            label_path = os.path.join(output_label_dir, labeler_subfolder, os.path.splitext(os.path.basename(image_path))[0] + '.txt')
+            # Skip tasks without annotations
+            if not item['output']:
+                logger.warning('No completions found for item #' + str(item_idx))
+                if not os.path.exists(label_path):
+                    with open(label_path, 'x'):
+                        pass
+                continue
 
             # concatenate results over all tag names
             labels = []
@@ -606,72 +697,43 @@ class Converter(object):
 
             if len(labels) == 0:
                 logger.warning(f'Empty bboxes for {item["output"]}')
+                if not os.path.exists(label_path):
+                    with open(label_path, 'x'):
+                        pass
                 continue
 
-            label_path = os.path.join(output_label_dir, os.path.splitext(os.path.basename(image_path))[0]+'.txt')
             annotations = []
             for label in labels:
-
                 category_name = None
+                category_names = []     # considering multi-label
                 for key in ['rectanglelabels', 'polygonlabels', 'labels']:
                     if key in label and len(label[key]) > 0:
-                        category_name = label[key][0]
-                        break
+                        # change to save multi-label
+                        for category_name in label[key]:
+                            category_names.append(category_name)
 
-                if category_name is None:
-                    logger.warning("Unknown label type or labels are empty: " + str(label))
+                if len(category_names) == 0:
+                    logger.debug("Unknown label type or labels are empty: " + str(label))
                     continue
 
+                for category_name in category_names:
+                    if category_name not in category_name_to_id:
+                        category_id = len(categories)
+                        category_name_to_id[category_name] = category_id
+                        categories.append({
+                            'id': category_id,
+                            'name': category_name
+                        })
+                    category_id = category_name_to_id[category_name]
 
-                if category_name not in category_name_to_id:
-                    category_id = len(categories)
-                    category_name_to_id[category_name] = category_id
-                    categories.append({
-                        'id': category_id,
-                        'name': category_name
-                    })
-                category_id = category_name_to_id[category_name]
-
-                if "rectanglelabels" in label or 'labels' in label:
-                    label_x, label_y, label_w, label_h, label_r = (
-                        label["x"],
-                        label["y"],
-                        label["width"],
-                        label["height"],
-                        label["rotation"],
-                    )
-                    if abs(label_r) > 0:
-                        r = math.pi * label_r / 180
-                        sin_r = math.sin(r)
-                        cos_r = math.cos(r)
-                        h_sin_r, h_cos_r = label_h * sin_r, label_h * cos_r
-                        x_top_right = label_x + label_w * cos_r
-                        y_top_right = label_y + label_w * sin_r
-                        
-                        x_ls = [
-                            label_x,
-                            x_top_right,
-                            x_top_right - h_sin_r,
-                            label_x - h_sin_r,
-                        ]
-                        y_ls = [
-                            label_y,
-                            y_top_right,
-                            y_top_right + h_cos_r,
-                            label_y + h_cos_r,
-                        ]
-                        label_x = max(0, min(x_ls))
-                        label_y = max(0, min(y_ls))
-                        label_w = min(100, max(x_ls)) - label_x
-                        label_h = min(100, max(y_ls)) - label_y
-                        
-                    x = (label_x + label_w / 2) / 100
-                    y = (label_y + label_h / 2) / 100
-                    w = label_w / 100
-                    h = label_h / 100
-                    annotations.append([category_id, x, y, w, h])
-                else:
-                    raise ValueError(f"Unknown label type {label}")
+                    if "rectanglelabels" in label or 'labels' in label:
+                        x, y, w, h = self.rotated_rectangle(label)
+                        annotations.append([category_id, (x + w / 2) / 100, (y + h / 2) / 100, w / 100, h / 100])
+                    elif "polygonlabels" in label:
+                        points_abs = [(x / 100, y / 100) for x, y in label["points"]]
+                        annotations.append([category_id] + [coord for point in points_abs for coord in point])
+                    else:
+                        raise ValueError(f"Unknown label type {label}")
             with open(label_path, 'w') as f:
                 for annotation in annotations:
                     for idx, l in enumerate(annotation):
@@ -691,6 +753,51 @@ class Converter(object):
                     'contributor': 'Label Studio'
                 }
             }, fout, indent=2)
+
+    @staticmethod
+    def rotated_rectangle(label):
+        label_x, label_y, label_w, label_h, label_r = (
+            label["x"],
+            label["y"],
+            label["width"],
+            label["height"],
+            label["rotation"],
+        )
+        
+        if abs(label_r) > 0:
+            alpha = math.atan(label_h / label_w)
+            beta = math.pi * (label_r / 180)  # Label studio defines the angle towards the vertical axis
+            
+            radius = math.sqrt((label_w/2) ** 2 + (label_h/2) ** 2)
+            
+            # Label studio saves the position of top left corner after rotation
+            x_0 = label_x - radius * (math.cos(math.pi - alpha - beta) - math.cos(math.pi - alpha)) + label_w / 2
+            y_0 = label_y + radius * (math.sin(math.pi - alpha - beta) - math.sin(math.pi - alpha)) + label_h / 2
+            
+            theta_1 = alpha + beta
+            theta_2 = math.pi - alpha + beta
+            theta_3 = math.pi + alpha + beta
+            theta_4 = 2 * math.pi - alpha + beta
+
+            x_coord = [
+                x_0 + radius * math.cos(theta_1),
+                x_0 + radius * math.cos(theta_2),
+                x_0 + radius * math.cos(theta_3),
+                x_0 + radius * math.cos(theta_4),
+            ]
+            y_coord = [
+                y_0 + radius * math.sin(theta_1),
+                y_0 + radius * math.sin(theta_2),
+                y_0 + radius * math.sin(theta_3),
+                y_0 + radius * math.sin(theta_4),
+            ]
+            
+            label_x = min(x_coord)
+            label_y = min(y_coord)
+            label_w = max(x_coord) - label_x
+            label_h = max(y_coord) - label_y 
+        
+        return label_x, label_y, label_w, label_h
 
     def convert_to_voc(self, input_data, output_dir, output_image_dir=None, is_dir=True):
 
@@ -712,14 +819,11 @@ class Converter(object):
         data_key = self._data_keys[0]
         item_iterator = self.iter_from_dir(input_data) if is_dir else self.iter_from_json_file(input_data)
         for item_idx, item in enumerate(item_iterator):
-            if not item['output']:
-                logger.warning('No annotations found for item #' + str(item_idx))
-                continue
             image_path = item['input'][data_key]
             annotations_dir = os.path.join(output_dir, 'Annotations')
             if not os.path.exists(annotations_dir):
                 os.makedirs(annotations_dir)
-
+            # Download image
             channels = 3
             if not os.path.exists(image_path):
                 try:
@@ -727,7 +831,7 @@ class Converter(object):
                         image_path, output_image_dir, project_dir=self.project_dir,
                         upload_dir=self.upload_dir, return_relative_path=True, download_resources=self.download_resources)
                 except:
-                    logger.error('Unable to download {image_path}. The item {item} will be skipped'.format(
+                    logger.info('Unable to download {image_path}. The item {item} will be skipped'.format(
                         image_path=image_path, item=item), exc_info=True)
                 else:
                     full_image_path = os.path.join(output_image_dir, os.path.basename(image_path))
@@ -735,9 +839,15 @@ class Converter(object):
                     try:
                         _, _, channels = get_image_size_and_channels(full_image_path)
                     except:
-                        logger.warning(f"Can't read channels from image {image_path}")
+                        logger.warning(f"Can't read channels from image")
 
-            image_name = os.path.splitext(os.path.basename(image_path))[0]
+            # skip tasks without annotations
+            if not item['output']:
+                logger.warning('No annotations found for item #' + str(item_idx))
+                continue
+
+            image_name = os.path.basename(image_path)
+            xml_name = os.path.splitext(image_name)[0] + '.xml'
 
             # concatenate results over all tag names
             bboxes = []
@@ -745,15 +855,15 @@ class Converter(object):
                 bboxes += item['output'][key]
 
             if len(bboxes) == 0:
-                logger.warning(f'Empty bboxes for {item["output"]}')
+                logger.debug(f'Empty bboxes for {item["output"]}')
                 continue
 
             if 'original_width' not in bboxes[0] or 'original_height' not in bboxes[0]:
-                logger.warning(f'original_width or original_height not found in {image_name}')
+                logger.debug(f'original_width or original_height not found in {image_name}')
                 continue
 
             width, height = bboxes[0]['original_width'], bboxes[0]['original_height']
-            xml_filepath = os.path.join(annotations_dir, image_name + '.xml')
+            xml_filepath = os.path.join(annotations_dir, xml_name)
 
             my_dom = xml.dom.getDOMImplementation()
             doc = my_dom.createDocument(None, 'annotation', None)

@@ -1,6 +1,6 @@
 # Label Studio Converter
 
-[Website](https://labelstud.io/) • [Docs](https://labelstud.io/guide) • [Twitter](https://twitter.com/heartexlabs) • [Join Slack Community <img src="https://app.heartex.ai/docs/images/slack-mini.png" width="18px"/>](https://join.slack.com/t/label-studio/shared_invite/zt-cr8b7ygm-6L45z7biEBw4HXa5A2b5pw)
+[Website](https://labelstud.io/) • [Docs](https://labelstud.io/guide) • [Twitter](https://twitter.com/heartexlabs) • [Join Slack Community <img src="https://app.heartex.ai/docs/images/slack-mini.png" width="18px"/>](https://slack.labelstudio.heartex.com)
 
 ## Table of Contents
 
@@ -23,12 +23,12 @@ Label Studio Format Converter helps you to encode labels into the format of your
 #### JSON
 Running from the command line:
 ```bash
-python backend/converter/cli.py --input examples/sentiment_analysis/completions/ --config examples/sentiment_analysis/config.xml --output tmp/output.json
+python label_studio_converter/cli.py --input examples/sentiment_analysis/completions/ --config examples/sentiment_analysis/config.xml --output tmp/output.json
 ```
 
 Running from python:
 ```python
-from converter import Converter
+from label_studio_converter import Converter
 
 c = Converter('examples/sentiment_analysis/config.xml')
 c.convert_to_json('examples/sentiment_analysis/completions/', 'tmp/output.json')
@@ -58,12 +58,12 @@ Use cases: any tasks
 #### CSV
 Running from the command line:
 ```bash
-python backend/converter/cli.py --input examples/sentiment_analysis/completions/ --config examples/sentiment_analysis/config.xml --output output_dir --format CSV --csv-separator $'\t'
+python label_studio_converter/cli.py --input examples/sentiment_analysis/completions/ --config examples/sentiment_analysis/config.xml --output output_dir --format CSV --csv-separator $'\t'
 ```
 
 Running from python:
 ```python
-from converter import Converter
+from label_studio_converter import Converter
 
 c = Converter('examples/sentiment_analysis/config.xml')
 c.convert_to_csv('examples/sentiment_analysis/completions/', 'output_dir', sep='\t', header=True)
@@ -83,12 +83,12 @@ Use cases: any tasks
 
 Running from the command line:
 ```bash
-python backend/converter/cli.py --input examples/named_entity/completions/ --config examples/named_entity/config.xml --output tmp/output.conll --format CONLL2003
+python label_studio_converter/cli.py --input examples/named_entity/completions/ --config examples/named_entity/config.xml --output tmp/output.conll --format CONLL2003
 ```
 
 Running from python:
 ```python
-from converter import Converter
+from label_studio_converter import Converter
 
 c = Converter('examples/named_entity/config.xml')
 c.convert_to_conll2003('examples/named_entity/completions/', 'tmp/output.conll')
@@ -116,12 +116,12 @@ Use cases: text tagging
 #### COCO
 Running from the command line:
 ```bash
-python backend/converter/cli.py --input examples/image_bbox/completions/ --config examples/image_bbox/config.xml --output tmp/output.json --format COCO --image-dir tmp/images
+python label_studio_converter/cli.py --input examples/image_bbox/completions/ --config examples/image_bbox/config.xml --output tmp/output.json --format COCO --image-dir tmp/images
 ```
 
 Running from python:
 ```python
-from converter import Converter
+from label_studio_converter import Converter
 
 c = Converter('examples/image_bbox/config.xml')
 c.convert_to_coco('examples/image_bbox/completions/', 'tmp/output.conll', output_image_dir='tmp/images')
@@ -195,12 +195,12 @@ Use cases: image object detection
 #### Pascal VOC XML
 Running from the command line:
 ```bash
-python backend/converter/cli.py --input examples/image_bbox/completions/ --config examples/image_bbox/config.xml --output tmp/voc-annotations --format VOC --image-dir tmp/images
+python label_studio_converter/cli.py --input examples/image_bbox/completions/ --config examples/image_bbox/config.xml --output tmp/voc-annotations --format VOC --image-dir tmp/images
 ```
 
 Running from python:
 ```python
-from converter import Converter
+from label_studio_converter import Converter
 
 c = Converter('examples/image_bbox/config.xml')
 c.convert_to_voc('examples/image_bbox/completions/', 'tmp/output.conll', output_image_dir='tmp/images')
@@ -259,15 +259,75 @@ Corresponding annotations could be found in `tmp/voc-annotations/*.xml`:
 
 Use cases: image object detection
 
+### YOLO
+
+Usage:
+
+```
+label-studio-converter import yolo -i /yolo/root/directory -o ls-tasks.json
+```
+
+Help:
+
+```
+label-studio-converter import yolo -h
+
+usage: label-studio-converter import yolo [-h] -i INPUT [-o OUTPUT]
+                                          [--to-name TO_NAME]
+                                          [--from-name FROM_NAME]
+                                          [--out-type OUT_TYPE]
+                                          [--image-root-url IMAGE_ROOT_URL]
+                                          [--image-ext IMAGE_EXT]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -i INPUT, --input INPUT
+                        directory with YOLO where images, labels, notes.json
+                        are located
+  -o OUTPUT, --output OUTPUT
+                        output file with Label Studio JSON tasks
+  --to-name TO_NAME     object name from Label Studio labeling config
+  --from-name FROM_NAME
+                        control tag name from Label Studio labeling config
+  --out-type OUT_TYPE   annotation type - "annotations" or "predictions"
+  --image-root-url IMAGE_ROOT_URL
+                        root URL path where images will be hosted, e.g.:
+                        http://example.com/images or s3://my-bucket
+  --image-ext IMAGE_EXT
+                        image extension to search: .jpg, .png
+```
+
+YOLO export folder example:
+
+```
+yolo-folder
+  images
+   - 1.jpg
+   - 2.jpg
+   - ...
+  labels
+   - 1.txt
+   - 2.txt
+
+  classes.txt
+```
+
+classes.txt example
+
+```
+Airplane
+Car
+```
+
 ## Contributing
 
 We would love to get your help for creating converters to other models. Please feel free to create pull requests.
 
-- [Contributing Guideline](/CONTRIBUTING.md)
-- [Code Of Conduct](/CODE_OF_CONDUCT.md)
+- [Contributing Guideline](https://github.com/heartexlabs/label-studio/blob/develop/CONTRIBUTING.md)
+- [Code Of Conduct](https://github.com/heartexlabs/label-studio/blob/develop/CODE_OF_CONDUCT.md)
 
 ## License
 
-This software is licensed under the [Apache 2.0 LICENSE](/LICENSE) © [Heartex](https://www.heartex.ai/). 2020
+This software is licensed under the [Apache 2.0 LICENSE](/LICENSE) © [Heartex](https://www.heartex.com/). 2020
 
 <img src="https://github.com/heartexlabs/label-studio/blob/master/images/opossum_looking.png?raw=true" title="Hey everyone!" height="140" width="140" />

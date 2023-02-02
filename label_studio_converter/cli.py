@@ -1,3 +1,6 @@
+"""
+ This file is deprecated and not used in label-studio-converter command
+"""
 import argparse
 import os
 import io
@@ -91,6 +94,8 @@ def main():
         c.convert_to_sly(args.input, args.output, input_image_dir=args.input_image_dir, tags2classes=args.tags2classes)
     elif args.format == Format.VOC:
         c.convert_to_voc(args.input, args.output, output_image_dir=args.image_dir, is_dir=not args.heartex_format)
+    elif args.format == Format.YOLO:
+        c.convert_to_yolo(args.input, args.output, is_dir=not args.heartex_format)
 
     print('Congratulations! Now check:\n' + args.output)
 

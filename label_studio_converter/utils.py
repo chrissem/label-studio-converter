@@ -1,6 +1,5 @@
 import io
 import os
-import xml.etree.ElementTree
 import requests
 import hashlib
 import logging
@@ -9,18 +8,35 @@ import numpy as np
 import wave
 import shutil
 import argparse
+import re
+import datetime
 
 from operator import itemgetter
 from PIL import Image
 from urllib.parse import urlparse
-from nltk.tokenize import WhitespaceTokenizer
+from nltk.tokenize.treebank import TreebankWordTokenizer
 from lxml import etree
 from collections import defaultdict
+from label_studio_tools.core.utils.params import get_env
 
 logger = logging.getLogger(__name__)
 
 _LABEL_TAGS = {'Label', 'Choice'}
 _NOT_CONTROL_TAGS = {'Filter',}
+LOCAL_FILES_DOCUMENT_ROOT = get_env('LOCAL_FILES_DOCUMENT_ROOT', default=os.path.abspath(os.sep))
+
+TreebankWordTokenizer.PUNCTUATION = [
+        (re.compile(r"([:,])([^\d])"), r" \1 \2"),
+        (re.compile(r"([:,])$"), r" \1 "),
+        (re.compile(r"\.\.\."), r" ... "),
+        (re.compile(r"[;@#$/%&]"), r" \g<0> "),
+        (
+            re.compile(r'([^\.])(\.)([\]\)}>"\']*)\s*$'),
+            r"\1 \2\3 ",
+        ),  # Handles the final period.
+        (re.compile(r"[?!]"), r" \g<0> "),
+        (re.compile(r"([^'])' "), r"\1 ' "),
+    ]
 
 class ExpandFullPath(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -41,7 +57,7 @@ def tokenize(text):
 
 def create_tokens_and_tags(text, spans):
     #tokens_and_idx = tokenize(text) # This function doesn't work properly if text contains multiple whitespaces...
-    token_index_tuples = [token for token in WhitespaceTokenizer().span_tokenize(text)]
+    token_index_tuples = [token for token in TreebankWordTokenizer().span_tokenize(text)]
     tokens_and_idx = [(text[start:end], start) for start, end in token_index_tuples]
     if spans and all([span.get('start') is not None and span.get('end') is not None for span in spans]):
         spans = list(sorted(spans, key=itemgetter('start')))
@@ -52,7 +68,7 @@ def create_tokens_and_tags(text, spans):
         tokens, tags = [], []
         for token, token_start in tokens_and_idx:
             tokens.append(token)
-            token_end = token_start + len(token) #"- 1" - This substraction is wrong. token already uses the index E.g. "Hello" is 0-4
+            token_end = token_start + len(token) - 1#"- 1" - This substraction is wrong. token already uses the index E.g. "Hello" is 0-4
             token_start_ind = token_start  #It seems like the token start is too early.. for whichever reason
 
             #if for some reason end of span is missed.. pop the new span (Which is quite probable due to this method)
@@ -105,7 +121,7 @@ def download(url, output_dir, filename=None, project_dir=None, return_relative_p
 
     if is_uploaded_file:
         upload_dir = _get_upload_dir(project_dir, upload_dir)
-        filename = url.replace('/data/upload/', '')
+        filename = urllib.parse.unquote(url.replace('/data/upload/', ''))
         filepath = os.path.join(upload_dir, filename)
         logger.debug(f'Copy {filepath} to {output_dir}'.format(filepath=filepath, output_dir=output_dir))
         if download_resources:
@@ -117,16 +133,16 @@ def download(url, output_dir, filename=None, project_dir=None, return_relative_p
     if is_local_file:
         filename, dir_path = url.split('/data/', 1)[-1].split('?d=')
         dir_path = str(urllib.parse.unquote(dir_path))
-        if not os.path.exists(dir_path):
-            raise FileNotFoundError(dir_path)
-        filepath = os.path.join(dir_path, filename)
-        if return_relative_path:
-            raise NotImplementedError()
+        filepath = os.path.join(LOCAL_FILES_DOCUMENT_ROOT, dir_path)
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(filepath)
+        if download_resources:
+            shutil.copy(filepath, output_dir)
         return filepath
 
     if filename is None:
         basename, ext = os.path.splitext(os.path.basename(urlparse(url).path))
-        filename = basename + '_' + hashlib.md5(url.encode()).hexdigest()[:4] + ext
+        filename = basename + '_' + hashlib.md5(url.encode() + str(datetime.datetime.now().timestamp()).encode()).hexdigest()[:4] + ext
     filepath = os.path.join(output_dir, filename)
     if not os.path.exists(filepath):
         logger.info('Download {url} to {filepath}'.format(url=url, filepath=filepath))
@@ -136,7 +152,7 @@ def download(url, output_dir, filename=None, project_dir=None, return_relative_p
             with io.open(filepath, mode='wb') as fout:
                 fout.write(r.content)
     if return_relative_path:
-        return os.path.join(os.path.basename(output_dir), filename)
+        return os.path.join(os.path.basename(output_dir), os.path.basename(filename))
     return filepath
 
 
@@ -234,7 +250,7 @@ def parse_config(config_string):
         tag_info['inputs'] = []
         for input_tag_name in tag_info['to_name']:
             if input_tag_name not in inputs:
-                logger.warning(
+                logger.debug(
                     f'to_name={input_tag_name} is specified for output tag name={output_tag}, '
                     'but we can\'t find it among input tags')
                 continue

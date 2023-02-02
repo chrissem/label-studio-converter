@@ -67,14 +67,20 @@ def bytes2bit(data):
     return ''.join([str(access_bit(data, i)) for i in range(len(data) * 8)])
 
 
-def decode_rle(rle):
+def decode_rle(rle, print_params: bool = False):
     """ from LS RLE to numpy uint8 3d image [width, height, channel]
+    
+    Args:
+        print_params (bool, optional): If true, a RLE parameters print statement is suppressed
     """
     input = InputStream(bytes2bit(rle))
     num = input.read(32)
     word_size = input.read(5) + 1
     rle_sizes = [input.read(4) + 1 for _ in range(4)]
-    print('RLE params:', num, 'values', word_size, 'word_size', rle_sizes, 'rle_sizes')
+    
+    if print_params:
+        print('RLE params:', num, 'values', word_size, 'word_size', rle_sizes, 'rle_sizes')
+        
     i = 0
     out = np.zeros(num, dtype=np.uint8)
     while i < num:
@@ -162,6 +168,7 @@ def convert_task_dir(items, out_dir, out_format='numpy'):
 
 ### Brush Import ###
 
+
 def bits2byte(arr_str, n=8):
     """ Convert bits back to byte
 
@@ -178,21 +185,22 @@ def bits2byte(arr_str, n=8):
         rle.append(int(i, 2))
     return rle
 
+
 # Shamelessly plagiarized from https://stackoverflow.com/a/32681075/6051733
 def base_rle_encode(inarray):
-        """ run length encoding. Partial credit to R rle function.
-            Multi datatype arrays catered for including non Numpy
-            returns: tuple (runlengths, startpositions, values) """
-        ia = np.asarray(inarray)                # force numpy
-        n = len(ia)
-        if n == 0:
-            return (None, None, None)
-        else:
-            y = ia[1:] != ia[:-1]               # pairwise unequal (string safe)
-            i = np.append(np.where(y), n - 1)   # must include last element posi
-            z = np.diff(np.append(-1, i))       # run lengths
-            p = np.cumsum(np.append(0, z))[:-1] # positions
-            return(z, p, ia[i])
+    """ run length encoding. Partial credit to R rle function.
+        Multi datatype arrays catered for including non Numpy
+        returns: tuple (runlengths, startpositions, values) """
+    ia = np.asarray(inarray)                # force numpy
+    n = len(ia)
+    if n == 0:
+        return None, None, None
+    else:
+        y = ia[1:] != ia[:-1]               # pairwise unequal (string safe)
+        i = np.append(np.where(y), n - 1)   # must include last element posi
+        z = np.diff(np.append(-1, i))       # run lengths
+        p = np.cumsum(np.append(0, z))[:-1] # positions
+        return z, p, ia[i]
 
 
 def encode_rle(arr, wordsize=8, rle_sizes=[3, 4, 8, 16]):
